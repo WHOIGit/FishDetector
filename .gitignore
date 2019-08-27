@@ -1,0 +1,4 @@
+*.py[co]
+*.pdf
+.DS_Store
+.direnv
