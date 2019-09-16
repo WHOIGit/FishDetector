@@ -6,14 +6,17 @@
 # see the README file for full details.
 #
 import argparse
+import os
 
 import cv2
 import numpy
 import tqdm
 
+
 def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--video', required=True)
+    parser.add_argument('-o', '--output', required=True)
 
     group = parser.add_argument_group('preprocessing')
     group.add_argument('--resize', nargs=2, type=int)
@@ -50,6 +53,11 @@ def main(args):
         success, frame = video.read()
         assert success
 
+        # Compute the output filename
+        name_prefix, _ = os.path.splitext(os.path.basename(args.video))
+        timestamp = int(video.get(cv2.CAP_PROP_POS_MSEC))
+        out = os.path.join(args.output, '%s_%i.jpg' % (name_prefix, timestamp))
+
         # Resize the frame if necessary
         if args.resize:
             frame = cv2.resize(frame, tuple(args.resize))
@@ -57,12 +65,15 @@ def main(args):
         # We will put the combined frame here
         combined = numpy.zeros((frame.shape[0], frame.shape[1], 3))
 
+
+        # -- Raw image --------------------------------------------------------
+
         # Convert the frame to grayscale and store it in the red channel
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         combined[...,2] = gray
 
 
-        # -- Background subtraction -------------------------------------------
+        # -- Foreground extraction --------------------------------------------
 
         # Adjust the gamma of the image
         gamma_adj = ((gray / 255) ** args.bg_gamma) * 255
@@ -87,6 +98,9 @@ def main(args):
         preveqframe, prev = prev, eqframe
         if preveqframe is None:
             continue
+
+        # If we wanted to skip doing any further processing of this frame,
+        # now would be a good time to do it...
 
         # Compute optical flow between current frame and previous
         flow = cv2.calcOpticalFlowFarneback(
@@ -117,7 +131,9 @@ def main(args):
         hsvgray = cv2.cvtColor(hsvgray, cv2.COLOR_BGR2GRAY)
         combined[...,0] = hsvgray
 
-        cv2.imwrite('/tmp/%03d.png' % nf, combined)
+
+        # Output the combined image
+        cv2.imwrite(out, combined)
 
 
 if __name__ == '__main__':
