@@ -2,3 +2,11 @@
 *.pdf
 .DS_Store
 .direnv
+
+darknet/
+data/
+
+darknet53.conv.74
+train.txt
+test.txt
+yolo-obj.cfg
