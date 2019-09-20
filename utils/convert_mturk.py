@@ -52,16 +52,18 @@ for row in rows:
 
     if bn in already_done:
         print('Warning: Multiple annotations for file %s. Only the last will '
-              'be used' % bn)
+              'be used.' % bn)
     already_done.add(bn)
+
+    clip = lambda x: max(min(x, 1.0), 0.0)
 
     nameprefix, _ = os.path.splitext(bn)
     with open(os.path.join(args.dir, nameprefix + '.txt'), 'w') as f:
         for box in boxes:
             f.write('%i %.5f %.5f %.5f %.5f\n' % (
                 args.label.get(box['label'], 0),
-                (box['left'] + (box['width'] / 2)) / width,
-                (box['top'] + (box['height'] / 2)) / height,
-                box['width'] / width,
-                box['height'] / height,
+                clip((box['left'] + (box['width'] / 2)) / width),
+                clip((box['top'] + (box['height'] / 2)) / height),
+                clip(box['width'] / width),
+                clip(box['height'] / height),
             ))
