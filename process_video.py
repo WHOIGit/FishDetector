@@ -126,7 +126,7 @@ def main(args):
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
         hsv = cv2.morphologyEx(hsv, cv2.MORPH_OPEN, kernel)
 
-        # Store the result in the red channel
+        # Store the result in the blue channel
         hsvgray = cv2.cvtColor(hsv.astype('float32'), cv2.COLOR_HSV2BGR)
         hsvgray = cv2.cvtColor(hsvgray, cv2.COLOR_BGR2GRAY)
         combined[...,0] = hsvgray
