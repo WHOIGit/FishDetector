@@ -10,3 +10,4 @@ darknet53.conv.74
 train.txt
 test.txt
 yolo-obj.cfg
+*.weights
