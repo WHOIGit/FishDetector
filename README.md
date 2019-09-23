@@ -73,9 +73,9 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
 2. Clone the [Darknet][] repository and build it. From here, we will assume that the directory `darknet/` contains the Darknet code, and the `darknet` executable is in the search path.
 
-    On WHOI's HPC, Darknet is available via the Modules package:
+    On WHOI's HPC, Darknet is available via the Modules package, however a more recent build of Darknet may be preferable.
 
-        module load cuda91/toolkit/9.1.85 cuda91/cudnn/7.1.3 darknet/20180529
+        module load cuda91/toolkit cuda91/cudnn darknet
 
 3. Create the `yolo-obj.cfg` file per the Darknet instructions. A patch file is provided in this repository, and can be applied like this:
 
@@ -110,6 +110,14 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 5. Start training:
 
         darknet detector train obj.data yolo-obj.cfg darknet53.conv.74
+
+    You can add `-gpus 0,1,2,...` to utilize multiple GPUs.
+
+    On WHOI's HPC, training with two NVIDIA Volta V100 GPUs took about one hour.
+
+6. To run a test detection:
+
+        darknet detector test obj.data yolo-obj.cfg yolo-obj_final.weights data/20170701145052891_777000.jpg
 
 
 
