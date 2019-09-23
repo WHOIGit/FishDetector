@@ -6,6 +6,7 @@
 # see the README file for full details.
 #
 import argparse
+import csv
 import os
 
 import cv2
@@ -17,6 +18,7 @@ def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--video', required=True)
     parser.add_argument('-o', '--output', required=True)
+    parser.add_argument('--only-in')
 
     group = parser.add_argument_group('preprocessing')
     group.add_argument('--resize', nargs=2, type=int)
@@ -39,6 +41,13 @@ def argument_parser():
 
 def main(args):
     video = cv2.VideoCapture(args.video)
+
+    whitelist = None
+    if args.only_in:
+        whitelist = set()
+        with open(args.only_in, newline='') as f:
+            for row in csv.DictReader(f):
+                whitelist.add(os.path.basename(row['image_url']))
 
     bgsub = cv2.createBackgroundSubtractorMOG2(
         history=args.bg_history,
@@ -101,6 +110,8 @@ def main(args):
 
         # If we wanted to skip doing any further processing of this frame,
         # now would be a good time to do it...
+        if whitelist and os.path.basename(out) not in whitelist:
+            continue
 
         # Compute optical flow between current frame and previous
         flow = cv2.calcOpticalFlowFarneback(
