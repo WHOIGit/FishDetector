@@ -83,25 +83,11 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
     Also customize the provided `obj.data` and `obj.names` according to instructions.
 
-4. Populate `train.txt` and `test.txt` with paths to input files. Split the input files into the training and testing set randomly. Only include files that have a corresponding bounding box info in a `.txt` file. For example, using Python:
+4. Populate `train.txt` and `test.txt` with paths to input files. Split the input files into the training and testing set randomly. Only include files that have a corresponding bounding box info in a `.txt` file.
 
-    ```python
-    import random, os
+    The `generate_train_list.py` script does this:
 
-    basedir = 'data/'
-    listing = [ os.path.join(basedir, f) for f in os.listdir(basedir) ]
-    files = [ f for f in listing \
-            if f.endswith('.jpg') and f.replace('.jpg', '.txt') in listing ]
-
-    random.shuffle(files)
-    ntrain = int(0.90 * len(files))
-
-    with open('train.txt', 'w') as o:
-        o.writelines(f + '\n' for f in files[:ntrain])
-
-    with open('test.txt', 'w') as o:
-        o.writelines(f + '\n' for f in files[ntrain:])
-    ```
+        python generate_train_list.py --dir data/
 
 5. Download the [pre-trained weights file][weights] (154 MB) to the current working directory.
 
