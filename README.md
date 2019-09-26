@@ -97,9 +97,7 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
         darknet detector train obj.data yolo-obj.cfg darknet53.conv.74
 
-    You can add `-gpus 0,1,2,...` to utilize multiple GPUs.
-
-    On WHOI's HPC, training with two NVIDIA Volta V100 GPUs took about one hour.
+    You can add `-gpus 0,1,2,...` to utilize multiple GPUs. On a Slurm cluster, the `$CUDA_VISIBLE_DEVICES` environment variable contains the job's allocated GPUs.
 
 6. To run a test detection:
 

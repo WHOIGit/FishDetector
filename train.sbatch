@@ -19,7 +19,7 @@ if [ -e ./darknet ]; then
 	PATH="$(pwd)/darknet:$PATH"
 fi
 
-darknet detector train obj.data yolo-obj.cfg darknet53.conv.74 -gpus 0,1
+darknet detector train obj.data yolo-obj.cfg darknet53.conv.74 -gpus "$CUDA_VISIBLE_DEVICES"
 
 date
 
