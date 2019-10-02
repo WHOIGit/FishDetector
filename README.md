@@ -97,12 +97,15 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
         darknet detector train obj.data yolo-obj.cfg darknet53.conv.74
 
-    You can add `-gpus 0,1,2,...` to utilize multiple GPUs. On a Slurm cluster, the `$CUDA_VISIBLE_DEVICES` environment variable contains the job's allocated GPUs.
+    You can add `-gpus 0,1,2,...` to utilize multiple GPUs.
 
-6. To run a test detection:
+    The result of training is a file is called `yolo-obj_best.weights`.
+
+6. To run a test detection, edit `yolo-obj.cfg` and uncomment the `batch` and `subdivisions` settings under the `# Testing` heading, and comment those under the `# Training` heading. Then run:
 
         darknet detector test obj.data yolo-obj.cfg yolo-obj_final.weights data/20170701145052891_777000.jpg
 
+    To lower the detection threshold, use `-thresh 0.01`.
 
 
 ## References

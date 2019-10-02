@@ -18,7 +18,10 @@ def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--video', required=True)
     parser.add_argument('-o', '--output', required=True)
-    parser.add_argument('--only-in')
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--only-in')
+    group.add_argument('--except-in')
 
     group = parser.add_argument_group('preprocessing')
     group.add_argument('--resize', nargs=2, type=int)
@@ -42,12 +45,15 @@ def argument_parser():
 def main(args):
     video = cv2.VideoCapture(args.video)
 
-    whitelist = None
-    if args.only_in:
+    whitelist = blacklist = None
+    if args.only_in or args.except_in:
         whitelist = set()
-        with open(args.only_in, newline='') as f:
+        with open(args.only_in or args.except_in, newline='') as f:
             for row in csv.DictReader(f):
                 whitelist.add(os.path.basename(row['image_url']))
+
+    if args.except_in:
+        blacklist, whitelist = whitelist, None
 
     bgsub = cv2.createBackgroundSubtractorMOG2(
         history=args.bg_history,
@@ -112,6 +118,8 @@ def main(args):
         # now would be a good time to do it...
         if whitelist and os.path.basename(out) not in whitelist:
             continue
+        if blacklist and os.path.basename(out) in blacklist:
+            continue
 
         # Compute optical flow between current frame and previous
         flow = cv2.calcOpticalFlowFarneback(
@@ -125,26 +133,29 @@ def main(args):
             0
         )
 
-        # Visualize the flow magnitude in color
+        # Visualize the flow in color
         mag, ang = cv2.cartToPolar(flow[...,0], flow[...,1])
 
-        hsv = numpy.zeros((frame.shape[0], frame.shape[1], 3))
-        hsv[...,0] = numpy.rad2deg(ang) / 2  # hue
+        hsv = numpy.zeros((frame.shape[0], frame.shape[1], 3), numpy.uint8)
+        hsv[...,0] = 255 * ang / (2*numpy.pi)  # hue
         hsv[...,1] = 255  # saturation
         hsv[...,2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)  # value
 
+        # Convert to BGR
+        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
         # Apply an opening operator
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-        hsv = cv2.morphologyEx(hsv, cv2.MORPH_OPEN, kernel)
+        bgr = cv2.morphologyEx(bgr, cv2.MORPH_OPEN, kernel)
 
         # Store the result in the blue channel
-        hsvgray = cv2.cvtColor(hsv.astype('float32'), cv2.COLOR_HSV2BGR)
-        hsvgray = cv2.cvtColor(hsvgray, cv2.COLOR_BGR2GRAY)
-        combined[...,0] = hsvgray
+        bgrgray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        combined[...,0] = bgrgray
 
 
         # Output the combined image
         cv2.imwrite(out, combined)
+        cv2.imwrite(out.replace('.jpg', '_original.jpg'), frame)
 
 
 if __name__ == '__main__':
