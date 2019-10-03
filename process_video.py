@@ -65,12 +65,15 @@ def main(args):
 
     nframes = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     for nf in tqdm.tqdm(range(nframes)):
+        # Read the timestamp *before* we read the frame
+        timestamp = int(video.get(cv2.CAP_PROP_POS_MSEC))
+
+        # Read the frame itself
         success, frame = video.read()
         assert success
 
         # Compute the output filename
         name_prefix, _ = os.path.splitext(os.path.basename(args.video))
-        timestamp = int(video.get(cv2.CAP_PROP_POS_MSEC))
         out = os.path.join(args.output, '%s_%i.jpg' % (name_prefix, timestamp))
 
         # Resize the frame if necessary
