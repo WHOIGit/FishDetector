@@ -108,6 +108,20 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
     To lower the detection threshold, use `-thresh 0.01`.
 
 
+## Building Darknet on macOS with OpenCV
+
+1. Install OpenCV with `brew install opencv`
+
+2. Configure `pkg-config` to be able to find OpenCV:
+
+        export PKG_CONFIG_PATH=$(brew --prefix opencv)/lib/pkgconfig
+        ln -s opencv4.pc $(brew --prefix opencv)/lib/pkgconfig/opencv.pc
+
+3. Modify the `Makefile` to set `OPENCV=1` and `AVX=1`.
+
+4. Run `make`.
+
+
 ## References
 
 1. Salman, A., Siddiqui, S. A., Shafait, F., Mian, A., Shortis, M. R., Khurshid, K., Ulges, A., and Schwanecke, U. *Automatic fish detection in underwater videos by a deep neural network-based hybrid motion learning system*, ICES Journal of Marine Science, doi:10.1093/icesjms/fsz025, 2019.
