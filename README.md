@@ -121,6 +121,8 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
 4. Run `make`.
 
+5. If you want text labels to appear on the prediction image, copy the `data/labels` directory from the Darknet source directory relative to the path from which you will run the `darknet` command.
+
 
 ## References
 
