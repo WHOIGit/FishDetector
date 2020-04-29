@@ -4,10 +4,9 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem-per-cpu=16gb
-#SBATCH --time=24:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1
-#SBATCH --output=output_%x.out
+#SBATCH --output=logs/train_%j.log
 
 echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
@@ -25,6 +24,7 @@ PATH="$BASEDIR/darknet/build_release:$PATH"
 JOB_DIR=training/$(date +'%Y-%m-%d')_$SLURM_JOB_ID
 mkdir -p "$JOB_DIR"
 cd "$JOB_DIR"
+ln -s "$BASEDIR"/logs/train_"$SLURM_JOB_ID".log train.log
 
 # Generate the training config files
 cp "$BASEDIR"/obj.names .
