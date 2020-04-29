@@ -14,7 +14,6 @@ parser.add_argument('--size', nargs=2, type=int)
 parser.add_argument('--subdivisions', type=int)
 parser.add_argument('baseconfig')
 args = parser.parse_args()
-print(args)
 
 
 # Parse the base configuration

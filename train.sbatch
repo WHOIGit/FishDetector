@@ -13,7 +13,8 @@ echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
 trap date EXIT
 
-module load cuda91/toolkit cuda91/cudnn
+module load cuda91/toolkit cuda91/blas cuda91/cudnn cuda91/fft
+module load gcc/6.5.0
 
 BASEDIR="$(pwd)"
 
@@ -25,19 +26,36 @@ JOB_DIR=training/$(date +'%Y-%m-%d')_$SLURM_JOB_ID
 mkdir -p "$JOB_DIR"
 cd "$JOB_DIR"
 
-# Create config file
-python configtool.py \
-    --classes 1 \
+# Generate the training config files
+cp "$BASEDIR"/obj.names .
+CLASSES=$(wc -l./obj.names | cut -d ' ' -f 1)
+
+for LIST in ../../{test,train}.txt; do
+    sed -e 's,^,../../,g' "$LIST" > "$(basename "$LIST")"
+done
+
+python "$BASEDIR"/configtool.py \
+    --classes $CLASSES \
     --batch 64 \
-    --subdivisions 8 \
+    --subdivisions 32 \
     --no-color-adjustments \
     --size 416 960 \
     "$BASEDIR"/darknet/cfg/yolov4-custom.cfg \
     > yolo-obj.cfg
 
+# Generate obj.data
+cat <<EOF > obj.data
+classes = $CLASSES
+train = train.txt
+test = test.txt
+names = obj.names
+backup = ./
+EOF
+
 print "Starting single GPU training"
 darknet detector train \
-    "$BASEDIR"/obj.data \
+    ./obj.data \
     ./yolo-obj.cfg \
     "$BASEDIR"/pretrained/yolov4.conv.137 \
+    -dont_show \
     -gpus 0
