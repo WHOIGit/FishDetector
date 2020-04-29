@@ -59,9 +59,10 @@ Labels are returned as straightforward JSON objects, and must be converted to th
 
 ## Training
 
-The reference implementation diverges from the paper by using the [YOLOv3][] object detection algorithm, rather than an R-CNN. We will also use YOLOv3, training our model using @AlexeyAB's fork of [Darknet][].
+The reference implementation diverges from the paper by using the [YOLOv3][] object detection algorithm, rather than an R-CNN. We will use [YOLOv4][], training our model using Alexey Bochkovskiy's fork of [Darknet][].
 
 [YOLOv3]: https://pjreddie.com/darknet/yolo/
+[YOLOv4]: https://arxiv.org/abs/2004.10934
 [Darknet]: https://github.com/AlexeyAB/darknet
 
 [This guide][yolo-guide] explains the distinction between Darknet and YOLO, and [these instructions][instructions] explain in more detail the training process.
@@ -73,13 +74,27 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
 2. Clone the [Darknet][] repository and build it. From here, we will assume that the directory `darknet/` contains the Darknet code, and the `darknet` executable is in the search path.
 
-    On WHOI's HPC, Darknet is available via the Modules package, however a more recent build of Darknet may be preferable.
+    On WHOI's HPC, build Darknet on a GPU node:
 
-        module load cuda91/toolkit cuda91/cudnn darknet
+        (login)  $ srun -p gpu --pty /bin/bash
+        (gpu001) $ module load cuda91/toolkit cuda91/cudnn cmake/3.14.3 gcc/6.5.0
+        (gpu001) $ cmake .. \
+            -DCMAKE_BUILD_TYPE=RelWithDebug \
+            -DCUDNN_LIBRARY=/vortexfs1/apps/cudnn-9.1/lib64/libcudnn.so \
+            -DCUDNN_INCLUDE_DIR=/vortexfs1/apps/cudnn-9.1/include \
+            -DENABLE_CUDNN_HALF=ON
+        (gpu001) $ make
 
-3. Create the `yolo-obj.cfg` file per the Darknet instructions. A patch file is provided in this repository, and can be applied like this:
+3. Create the `yolo-obj.cfg` file per the Darknet instructions. A tool is provided in this repository to help:
 
-        patch -o yolo-obj.cfg darknet/cfg/yolov3.cfg < yolo-obj.cfg.patch
+        $ python configtool.py \
+            --classes 1 \
+            --batch 64 \
+            --subdivisions 8 \
+            --no-color-adjustments \
+            --size 416 960 \
+            darknet/cfg/yolov4-custom.cfg \
+            > yolo-obj.cfg
 
     Also customize the provided `obj.data` and `obj.names` according to instructions.
 
@@ -89,13 +104,13 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
         python generate_train_list.py --dir data/
 
-5. Download the [pre-trained weights file][weights] (154 MB) to the current working directory.
+5. Download the [pre-trained weights file][weights] (162 MB) to the `pretrained` directory.
 
-[weights]: https://pjreddie.com/media/files/darknet53.conv.74
+[weights]: https://github.com/AlexeyAB/darknet/releases/download/darknet_yolo_v3_optimal/yolov4.conv.137
 
 5. Start training:
 
-        darknet detector train obj.data yolo-obj.cfg darknet53.conv.74
+        darknet detector train obj.data yolo-obj.cfg pretrained/yolov4.conv.137
 
     You can add `-gpus 0,1,2,...` to utilize multiple GPUs.
 
