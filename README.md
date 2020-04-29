@@ -72,18 +72,7 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
 
 1. Prepare the `.txt` files alongside the input files, which we will assume are `.jpg` files stored in `data/`.
 
-2. Clone the [Darknet][] repository and build it. From here, we will assume that the directory `darknet/` contains the Darknet code, and the `darknet` executable is in the search path.
-
-    On WHOI's HPC, build Darknet on a GPU node:
-
-        (login)  $ srun -p gpu --pty /bin/bash
-        (gpu001) $ module load cuda91/toolkit cuda91/cudnn cmake/3.14.3 gcc/6.5.0
-        (gpu001) $ cmake .. \
-            -DCMAKE_BUILD_TYPE=RelWithDebug \
-            -DCUDNN_LIBRARY=/vortexfs1/apps/cudnn-9.1/lib64/libcudnn.so \
-            -DCUDNN_INCLUDE_DIR=/vortexfs1/apps/cudnn-9.1/include \
-            -DENABLE_CUDNN_HALF=ON
-        (gpu001) $ make
+2. Clone the [Darknet][] repository and build it with OpenCV support. From here, we will assume that the directory `darknet/` contains the Darknet code, and the `darknet` executable is in the search path.
 
 3. Create the `yolo-obj.cfg` file per the Darknet instructions. A tool is provided in this repository to help:
 
@@ -123,7 +112,55 @@ The reference implementation diverges from the paper by using the [YOLOv3][] obj
     To lower the detection threshold, use `-thresh 0.01`.
 
 
-## Building Darknet on macOS with OpenCV
+## Building Darknet with OpenCV on WHOI's HPC
+
+On WHOI's HPC, build Darknet on a GPU node:
+
+    srun -p gpu --pty /bin/bash
+
+Load all necessary modules:
+
+    module load cuda91/toolkit cuda91/blas cuda91/cudnn cuda91/fft
+    module load cmake/3.14.3 gcc/6.5.0
+
+### Building OpenCV
+
+Darknet requires OpenCV for performing some image manipulation.
+
+Download [OpenCV][opencv-rel] to `opencv/` and [extras][opencv-contrib-rel] to `opencv/opencv_contrib/`.
+
+[opencv-rel]: https://github.com/opencv/opencv/releases
+[opencv-contrib-rel]: https://github.com/opencv/opencv_contrib/releases
+
+Currently the OpenCV built here is not used by our Python scripts, but ideally we could install bindings into our virtual environment.
+
+Also note that we cannot build with cuDNN support because OpenCV requires a newer version than the HPC provides.
+
+    mkdir build && cd build
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=RelWithDebugInfo \
+        -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
+        -DWITH_CUDA=ON \
+        -DWITH_CUBLAS=ON
+    cmake --build .
+
+Compiling the CUDA source files takes an unusually long time, so the build will appear to stall towards the end.
+
+
+### Building Darknet
+
+    mkdir build_release && cd build_release
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCUDNN_LIBRARY=/vortexfs1/apps/cudnn-9.1/lib64/libcudnn.so \
+        -DCUDNN_INCLUDE_DIR=/vortexfs1/apps/cudnn-9.1/include \
+        -DENABLE_CUDNN_HALF=ON \
+        -DOPENCV=ON \
+        -DOpenCV_DIR=$(cd ../../opencv/build; pwd)
+    cmake --build .
+
+
+## Building Darknet with OpenCV on macOS
 
 1. Install OpenCV with `brew install opencv`
 
