@@ -28,7 +28,7 @@ cd "$JOB_DIR"
 
 # Generate the training config files
 cp "$BASEDIR"/obj.names .
-CLASSES=$(wc -l./obj.names | cut -d ' ' -f 1)
+CLASSES=$(wc -l ./obj.names | cut -d ' ' -f 1)
 
 for LIST in ../../{test,train}.txt; do
     sed -e 's,^,../../,g' "$LIST" > "$(basename "$LIST")"
