@@ -1,13 +1,33 @@
 *.py[co]
 *.pdf
 .DS_Store
-.direnv
+.vscode/
 
+# Virtual environments
+.direnv
+.venv
+
+# External tools that we may have built
 darknet/
+opencv/
+
+# Processed frames
 data/
 
-darknet53.conv.74
-train.txt
-test.txt
-yolo-obj.cfg
-*.weights
+# WHOI's videos
+Diadrocam2017/
+
+# Logs from HPC jobs
+logs/
+
+# Extracted frames
+frames/
+
+# Pretrained weights
+pretrained/
+
+# Scratch directory
+scratch/
+
+# Training workspace
+training/
