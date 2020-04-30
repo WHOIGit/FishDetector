@@ -215,7 +215,7 @@ def main(args):
                 # Determine the classification with the highest confidence
                 scores = detection[5:]
                 classId = numpy.argmax(scores)
-                confidence = scores[classId]
+                confidence = scores[classId].item()
                 if confidence < args.nn_threshold:
                     continue
                 confidences.append(confidence)
@@ -231,7 +231,7 @@ def main(args):
                 boxes.append([left, top, boxwidth, boxheight])
         
         # Save detection data if desired
-        if args.save_detection_data:
+        if boxes and args.save_detection_data:
             output = {
                 'video': args.video,
                 'frame': {
@@ -251,7 +251,7 @@ def main(args):
                     'height': box[3],
                     'confidence': conf,
                 })
-            
+
             path = os.path.join(args.save_detection_data, out + '_boxes.json')
             with open(path, 'w') as f:
                 json.dump(output, f)
