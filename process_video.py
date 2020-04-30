@@ -44,7 +44,7 @@ def argument_parser():
     group.add_argument('--of-poly-sigma', type=float, default=1.2)  # 1.2
 
     group = parser.add_argument_group('detection')
-    group.add_argument('--nn-threshold', default=0.5)
+    group.add_argument('--nn-threshold', type=float, default=0.5)
     group.add_argument('--nn-weights')
     group.add_argument('--nn-config')
 

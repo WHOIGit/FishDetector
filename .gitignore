@@ -14,6 +14,9 @@ opencv/
 # Processed frames
 data/
 
+# Detections
+detections/
+
 # WHOI's videos
 Diadrocam2017/
 
@@ -23,11 +26,11 @@ logs/
 # Extracted frames
 frames/
 
+# Trained networks
+networks/
+
 # Pretrained weights
 pretrained/
 
 # Scratch directory
 scratch/
-
-# Training workspace
-training/

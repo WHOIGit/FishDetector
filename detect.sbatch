@@ -33,6 +33,13 @@ VIDEONAME="$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)"
 # Create a directory to store detections
 FINGERPRINT="$(basename "$(readlink "$NETDIR"/data)")"
 OUTDIR=detections/"$FINGERPRINT"/"$VIDEONAME"
+
+if [ -d "$OUTDIR" ]; then
+    echo "Deleting existing directory $OUTDIR"
+    rm -Rf "$OUTDIR"
+    find detections/byjob -xtype l -delete
+fi
+
 mkdir -p "$OUTDIR"
 
 # Create some links within the output directory
