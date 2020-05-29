@@ -44,6 +44,7 @@ def argument_parser():
     group.add_argument('--of-poly-sigma', type=float, default=1.2)  # 1.2
 
     group = parser.add_argument_group('detection')
+    group.add_argument('--nn-backend', default='OpenCL')
     group.add_argument('--nn-threshold', type=float, default=0.5)
     group.add_argument('--nn-weights')
     group.add_argument('--nn-config')
@@ -79,8 +80,14 @@ def main(args):
     net = None
     if args.nn_weights and args.nn_config:
         net = cv2.dnn.readNet(args.nn_weights, args.nn_config, 'darknet')
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        if args.nn_backend == 'OpenCL':
+            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
+            net.setPreferableTarget(cv2.dnn.DNN_TARGET_OPENCL)
+        elif args.nn_backend == 'CUDA':
+            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+            net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+        else:
+            raise Exception('Unknown DNN backend ' + args.nn_backend)
 
         # Determine the input image size the network expects
         config = configparser.ConfigParser(strict=False)
