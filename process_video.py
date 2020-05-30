@@ -9,15 +9,16 @@ import argparse
 import configparser
 import csv
 import json
+import multiprocessing
 import os
 
 import cv2
 import numpy
-import tqdm
 
 
 def argument_parser():
     parser = argparse.ArgumentParser()
+    parser.add_argument('-n', '--num-cores', type=int, default=1)
     parser.add_argument('-v', '--video', required=True)
 
     group = parser.add_argument_group('output')
@@ -53,31 +54,24 @@ def argument_parser():
 
 
 def main(args):
+    # Determine the number of frames in the video
     video = cv2.VideoCapture(args.video)
     nframes = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    del video
 
-    # This feature has been removed for now
-    whitelist = blacklist = None
-    if False:
-        if args.only_in or args.except_in:
-            whitelist = set()
-            with open(args.only_in or args.except_in, newline='') as f:
-                for row in csv.DictReader(f):
-                    whitelist.add(os.path.basename(row['image_url']))
-
-        if args.except_in:
-            blacklist, whitelist = whitelist, None
-
-    bgsub = cv2.createBackgroundSubtractorMOG2(
-        history=args.bg_history,
-        varThreshold=args.bg_var_threshold,
-        detectShadows=False
-    )
-
-    prev = None
+    # Break the frames into work units, taking into account the history size of
+    # the background subtractor
+    workunits = []
+    linsp = numpy.linspace(0, nframes, args.num_cores + 1, dtype=int)
+    for i in range(args.num_cores):
+        workunits.append((
+            max(0, linsp[i] - args.bg_history),  # start frame
+            linsp[i],                            # first frame to save
+            linsp[i + 1],                        # last frame (excluded)
+        ))
 
     # Load the neural network
-    net = None
+    net, nn_size = None, None
     if args.nn_weights and args.nn_config:
         net = cv2.dnn.readNet(args.nn_weights, args.nn_config, 'darknet')
         if args.nn_backend == 'OpenCL':
@@ -98,8 +92,28 @@ def main(args):
         )
 
         assert args.save_detection_data or args.save_detection_image
+    
+    # Kick off the actual thread_main() which processes the video
+    pool = multiprocessing.Pool(processes=args.num_cores)
+    pool.map_async(lambda wu: thread_main(args, wu, net, nn_size), workunits)
+    pool.close()
+    pool.join()
 
-    for nf in tqdm.tqdm(range(nframes)):
+
+def thread_main(args, workunit, net, nn_size):
+    # Seek to the first frame we care about
+    video = cv2.VideoCapture(args.video)
+    video.set(cv2.CAP_PROP_POS_FRAMES, workunit[0])
+
+    bgsub = cv2.createBackgroundSubtractorMOG2(
+        history=args.bg_history,
+        varThreshold=args.bg_var_threshold,
+        detectShadows=False
+    )
+
+    prev = None
+
+    for nf in range(workunit[0], workunit[2]):
         # Read the timestamp *before* we read the frame
         timestamp = int(video.get(cv2.CAP_PROP_POS_MSEC))
 
@@ -129,6 +143,7 @@ def main(args):
         # -- Foreground extraction --------------------------------------------
 
         # Adjust the gamma of the image
+        # FIXME: This doesn't appear to be used
         gamma_adj = ((gray / 255) ** args.bg_gamma) * 255
 
         # Apply background subtraction to determine the mask
@@ -152,11 +167,9 @@ def main(args):
         if preveqframe is None:
             continue
 
-        # If we wanted to skip doing any further processing of this frame,
-        # now would be a good time to do it...
-        if whitelist and os.path.basename(out) not in whitelist:
-            continue
-        if blacklist and os.path.basename(out) in blacklist:
+        # Exit early if we are just seeding the background subtraction history
+        # and not actually processing this frame.
+        if nf < workunit[1]:
             continue
 
         # Compute optical flow between current frame and previous
