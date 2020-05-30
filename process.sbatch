@@ -1,4 +1,4 @@
-#!/usr/bin/env bash -eu
+#!/usr/bin/env bash
 
 #SBATCH --job-name=FishDetector
 #SBATCH --ntasks=1
@@ -8,24 +8,38 @@
 #SBATCH --partition=compute
 #SBATCH --output=logs/process_%j.log
 
+set -eu
+
 echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
 trap date EXIT
 
-module load python3/3.6.5
+
+module purge
+module load default-environment slurm/17.11.12
+module load gcc/6.5.0 python3/3.6.5
+
+# Load the CUDA modules because OpenCV is linked to them, but we will only use
+# them if we're on a GPU node.
+module load cuda91/toolkit cuda91/blas cuda91/fft
+if [ ! -d ./cudnn ]; then
+    echo "[*] Missing cuDNN directory, loading cuDNN module"
+    module load cuda91/cudnn
+fi
+
 
 # If there isn't a virtual environment, create it
 [ ! -d .venv ] && virtualenv .venv
-. .venv/bin/activate
+set +u; . .venv/bin/activate; set -u
 pip install -r requirements.txt
 
 # Get configuration options
-VIDEOFILE=$1
+VIDEOFILE="$1"
 shift
 PROCESS_ARGS="$@"
 
 # Get the name of the video without extension
-VIDEONAME=$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)
+VIDEONAME="$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)"
 
 # Create a fingerprint for the settings used here
 SCRIPT_IDENTIFIER="$(git log -n 1 --pretty=format:%H -- process_video.py)"
@@ -42,8 +56,15 @@ if [ ! -d data/"$FINGERPRINT" ]; then
 fi
 
 # Create a directory for storing processed frames
-OUTDIR=data/"$FINGERPRINT"/"$VID_NAME"
+OUTDIR=data/"$FINGERPRINT"/"$VIDEONAME"
 mkdir -p "$OUTDIR"
 
+# Create a link to find the results by job
+mkdir -p data/byjob || true
+ln -s ../../"$OUTDIR" data/byjob/"$(date +'%Y-%m-%d')"_"$SLURM_JOB_ID"
+
 # Start processing the frames
-python process_video.py -v "$VIDEOFILE" $PROCESS_ARGS
+python process_video.py \
+    -v "$VIDEOFILE" \
+    --num-cores "$SLURM_CPUS_PER_TASK" \
+    $PROCESS_ARGS
