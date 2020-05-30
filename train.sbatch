@@ -8,6 +8,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --output=logs/train_%j.log
 
+set -eu
+
 echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
 trap date EXIT
@@ -20,22 +22,26 @@ BASEDIR="$(pwd)"
 # Use our local build of Darknet
 PATH="$BASEDIR/darknet/build_release:$PATH"
 
+# Get configuration options
+DATADIR="$(cd "$1"; pwd)"
+
 # Make a directory for this job
-JOB_DIR=training/$(date +'%Y-%m-%d')_$SLURM_JOB_ID
+JOB_DIR=networks/"$(date +'%Y-%m-%d')"_"$SLURM_JOB_ID"
 mkdir -p "$JOB_DIR"
 cd "$JOB_DIR"
 ln -s "$BASEDIR"/logs/train_"$SLURM_JOB_ID".log train.log
+ln -s "$DATADIR" data
 
 # Generate the training config files
 cp "$BASEDIR"/obj.names .
-CLASSES=$(wc -l ./obj.names | cut -d ' ' -f 1)
+CLASSES="$(wc -l ./obj.names | cut -d ' ' -f 1)"
 
-for LIST in ../../{test,train}.txt; do
-    sed -e 's,^,../../,g' "$LIST" > "$(basename "$LIST")"
+for LIST in data/{test,train}.txt; do
+    sed -e 's,^,data/,g' "$LIST" > "$(basename "$LIST")"
 done
 
 python "$BASEDIR"/configtool.py \
-    --classes $CLASSES \
+    --classes "$CLASSES" \
     --batch 64 \
     --subdivisions 32 \
     --no-color-adjustments \
