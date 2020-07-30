@@ -14,7 +14,7 @@ echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
 trap date EXIT
 
-module load cuda91/toolkit cuda91/blas cuda91/cudnn cuda91/fft
+module load cuda10.1/{toolkit,blas,fft}
 module load gcc/6.5.0
 
 BASEDIR="$(pwd)"
@@ -58,7 +58,7 @@ names = obj.names
 backup = ./
 EOF
 
-print "Starting single GPU training"
+echo "Starting single GPU training"
 darknet detector train \
     ./obj.data \
     ./yolo-obj.cfg \
