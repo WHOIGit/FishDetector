@@ -49,7 +49,7 @@ if args.batch is not None:
 
 if args.classes is not None:
     net.attributes['max_batches'] = max_batches = \
-        max(4000, args.classes * 2000)
+        max(6000, args.classes * 2000)
     net.attributes['steps'] = \
         f'{int(0.8*max_batches)},{int(0.9*max_batches)}'
     
