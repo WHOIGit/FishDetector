@@ -7,9 +7,10 @@
 .direnv
 .venv
 
-# External tools that we may have built
+# External tools that we may have installed
 darknet/
 opencv/
+cudnn/
 
 # Processed frames
 data/
