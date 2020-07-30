@@ -120,8 +120,23 @@ On WHOI's HPC, build Darknet on a GPU node:
 
 Load all necessary modules:
 
-    module load cuda91/toolkit cuda91/blas cuda91/cudnn cuda91/fft
-    module load cmake/3.14.3 gcc/6.5.0
+    module load cuda10.1/{toolkit,blas,fft}
+    module load cmake/3.14.3 gcc/6.5.0 python3/3.6.5
+
+Create and activate the virtual environment:
+
+    python3 -m virtualenv .venv
+    . .venv/bin/activate
+    pip install -r requirements.txt
+    pip uninstall -y opencv-python
+
+
+### Obtaining cuDNN
+
+WHOI's HPC provides an oudated cuDNN module. A newer version can be obtained from [NVIDIA Developer][cudnn]. Obtain a recent release (tested: 7.6.5) for CUDA 10.1 and unpack it to the `cudnn/` directory (renaming it from `cuda/`).
+
+[cudnn]: https://developer.nvidia.com/cudnn
+
 
 ### Building OpenCV
 
@@ -132,19 +147,46 @@ Download [OpenCV][opencv-rel] to `opencv/` and [extras][opencv-contrib-rel] to `
 [opencv-rel]: https://github.com/opencv/opencv/releases
 [opencv-contrib-rel]: https://github.com/opencv/opencv_contrib/releases
 
-Currently the OpenCV built here is not used by our Python scripts, but ideally we could install bindings into our virtual environment.
-
-Also note that we cannot build with cuDNN support because OpenCV requires a newer version than the HPC provides.
-
     mkdir build && cd build
+
+    PYTHON_PREFIX="$(python-config --prefix)"
+    PYTHON_LIBRARY="$PYTHON_PREFIX/lib/lib$(python-config --libs | tr ' ' '\n' | cut -c 3- | grep python).so"
+    PYTHON_INCLUDE="$(python-config --includes | tr ' ' '\n' | cut -c 3- | head -n 1)"
+    PYTHON_PACKAGES="$(python3 -c 'import sys; print(sys.path[-1])')"
+    NUMPY_INCLUDE="$(python3 -c 'import numpy; print(numpy.__path__[0])')/core/include"
+
+    mkdir root
     cmake .. \
         -DCMAKE_BUILD_TYPE=RelWithDebugInfo \
+        -DCMAKE_INSTALL_PREFIX="$(cd root; pwd)" \
         -DOPENCV_EXTRA_MODULES_PATH=../opencv_contrib/modules \
         -DWITH_CUDA=ON \
-        -DWITH_CUBLAS=ON
-    cmake --build .
+        -DWITH_CUBLAS=ON \
+        -DWITH_CUDNN=ON \
+        -DCUDNN_LIBRARY="$(pwd)/../../cudnn/lib64/libcudnn.so" \
+        -DCUDNN_INCLUDE_DIR="$(pwd)/../../cudnn/include" \
+        -DCUDA_ARCH_BIN=7.0 \
+        -DOPENCV_DNN_CUDA=ON \
+        -DBUILD_JAVA=OFF \
+        -DBUILD_TESTS=OFF \
+        -DBUILD_PERF_TESTS=OFF \
+        -DBUILD_opencv_java=OFF \
+        -DBUILD_opencv_python2=OFF \
+        -DBUILD_opencv_python3=ON \
+        -DPYTHON_DEFAULT_EXECUTABLE="$(command -v python3)" \
+        -DPYTHON3_INCLUDE_DIR="$PYTHON_INCLUDE" \
+        -DPYTHON3_LIBRARY="$PYTHON_LIBRARY" \
+        -DPYTHON3_EXECUTABLE="$(command -v python3)" \
+        -DPYTHON3_NUMPY_INCLUDE_DIRS="$NUMPY_INCLUDE" \
+        -DPYTHON3_PACKAGES_PATH="$PYTHON_PACKAGES" \
+        -DOPENCV_SKIP_PYTHON_LOADER=ON
+    cmake --build . -j "$(nproc)"
 
-Compiling the CUDA source files takes an unusually long time, so the build will appear to stall towards the end.
+Compiling the CUDA source files takes an unusually long time, so the build may appear to stall.
+
+Finally, we can install the Python module to the virtual environment. Be sure to comment `opencv-python` out of the `requirements.txt` file as well, so it is not replaced.
+
+    cp lib/python3/cv2.*.so "$PYTHON_PACKAGES/"
 
 
 ### Building Darknet
@@ -152,12 +194,11 @@ Compiling the CUDA source files takes an unusually long time, so the build will 
     mkdir build_release && cd build_release
     cmake .. \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DCUDNN_LIBRARY=/vortexfs1/apps/cudnn-9.1/lib64/libcudnn.so \
-        -DCUDNN_INCLUDE_DIR=/vortexfs1/apps/cudnn-9.1/include \
+        -DCUDNN_LIBRARY="$(pwd)/../../cudnn/lib64/libcudnn.so" \
+        -DCUDNN_INCLUDE_DIR="$(pwd)/../../cudnn/include" \
         -DENABLE_CUDNN_HALF=ON \
-        -DOPENCV=ON \
         -DOpenCV_DIR=$(cd ../../opencv/build; pwd)
-    cmake --build .
+    cmake --build . -j "$(nproc)"
 
 
 ## Building Darknet with OpenCV on macOS
