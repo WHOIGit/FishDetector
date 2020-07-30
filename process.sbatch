@@ -2,17 +2,21 @@
 
 #SBATCH --job-name=FishDetector
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem-per-cpu=80gb
+#SBATCH --cpus-per-task=5
+#SBATCH --mem-per-cpu=6gb
 #SBATCH --time=24:00:00
-#SBATCH --partition=compute
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:4
 #SBATCH --output=logs/process_%j.log
 
 set -eu
 
 echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
+echo "Command: $0 $@"
 hostname; pwd; date
 trap date EXIT
+
+[ -n "${CUDA_VISIBLE_DEVICES+x}" ] && HAS_GPU=1 || HAS_GPU=0
 
 
 module purge
@@ -21,10 +25,10 @@ module load gcc/6.5.0 python3/3.6.5
 
 # Load the CUDA modules because OpenCV is linked to them, but we will only use
 # them if we're on a GPU node.
-module load cuda91/toolkit cuda91/blas cuda91/fft
+module load cuda10.1/{toolkit,blas,fft}
 if [ ! -d ./cudnn ]; then
     echo "[*] Missing cuDNN directory, loading cuDNN module"
-    module load cuda91/cudnn
+    module load cuda10.1/cudnn
 fi
 
 
@@ -37,6 +41,14 @@ pip install -r requirements.txt
 VIDEOFILE="$1"
 shift
 PROCESS_ARGS="$@"
+
+# Pick a backend for OpenCV DNN
+if [ "$HAS_GPU" -eq 1 ]; then
+    DNN_BACKEND=CUDA
+else
+    DNN_BACKEND=OpenCL
+fi
+echo "[*] Using DNN backend $DNN_BACKEND"
 
 # Get the name of the video without extension
 VIDEONAME="$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)"
@@ -66,5 +78,8 @@ ln -s ../../"$OUTDIR" data/byjob/"$(date +'%Y-%m-%d')"_"$SLURM_JOB_ID"
 # Start processing the frames
 python process_video.py \
     -v "$VIDEOFILE" \
-    --num-cores "$SLURM_CPUS_PER_TASK" \
+    --progress \
+    --ramdisk \
+    --num-cores $((SLURM_CPUS_PER_TASK - 1)) \
+    --nn-backend "$DNN_BACKEND" \
     $PROCESS_ARGS

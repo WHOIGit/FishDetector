@@ -2,19 +2,23 @@
 
 #SBATCH --job-name=FishDetector
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12
-#SBATCH --mem-per-cpu=16gb
+#SBATCH --cpus-per-task=36
+#SBATCH --mem-per-cpu=6gb
 #SBATCH --time=24:00:00
-#SBATCH --partition=compute
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:4
 #SBATCH --output=logs/detect_%j.log
+
+# usage: sbatch detect.sbatch <video> <network_dir>
 
 set -eu
 
 echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
+echo "Command: $0 $@"
 hostname; pwd; date
 trap date EXIT
 
-[ -n "$CUDA_VISIBLE_DEVICES" ] && HAS_GPU=1 || HAS_GPU=0
+[ -n "${CUDA_VISIBLE_DEVICES+x}" ] && HAS_GPU=1 || HAS_GPU=0
 
 
 module purge
@@ -23,10 +27,10 @@ module load gcc/6.5.0 python3/3.6.5
 
 # Load the CUDA modules because OpenCV is linked to them, but we will only use
 # them if we're on a GPU node.
-module load cuda91/toolkit cuda91/blas cuda91/fft
+module load cuda10.1/{toolkit,blas,fft}
 if [ ! -d ./cudnn ]; then
     echo "[*] Missing cuDNN directory, loading cuDNN module"
-    module load cuda91/cudnn
+    module load cuda10.1/cudnn
 fi
 
 
@@ -53,8 +57,8 @@ echo "[*] Using DNN backend $DNN_BACKEND"
 VIDEONAME="$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)"
 
 # Create a directory to store detections
-FINGERPRINT="$(basename "$(readlink "$NETDIR"/data)")"
-OUTDIR=detections/"$FINGERPRINT"/"$VIDEONAME"
+NETWORKNAME="network_$(basename "$NETDIR")"
+OUTDIR=detections/"$NETWORKNAME"/"$VIDEONAME"
 
 if [ -d "$OUTDIR" ]; then
     echo "Deleting existing directory $OUTDIR"
@@ -74,10 +78,13 @@ ln -s ../../"$OUTDIR" detections/byjob/"$(date +'%Y-%m-%d')"_"$SLURM_JOB_ID"
 
 python process_video.py \
     -v "$VIDEOFILE" \
-    --num-cores "$SLURM_CPUS_PER_TASK" \
+    --progress \
+    --ramdisk \
+    --num-cores $((SLURM_CPUS_PER_TASK - 1)) \
     --nn-backend "$DNN_BACKEND" \
     --nn-config "$OUTDIR"/network/yolo-obj.cfg \
     --nn-weights "$OUTDIR"/network/yolo-obj_final.weights \
     --nn-threshold 0.5 \
+    --nn-nms 0.4 \
     --save-detection-data "$OUTDIR" \
     $(cat "$OUTDIR"/network/data/settings.txt)
