@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=FishDetector
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=5
+#SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=6gb
 #SBATCH --time=24:00:00
 #SBATCH --partition=gpu
@@ -28,7 +28,7 @@ module load gcc/6.5.0 python3/3.6.5
 module load cuda10.1/{toolkit,blas,fft}
 if [ ! -d ./cudnn ]; then
     echo "[*] Missing cuDNN directory, loading cuDNN module"
-    module load cuda10.1/cudnn
+    module load cuda10.1/cudnn/8.0.2
 fi
 
 
@@ -80,6 +80,6 @@ python process_video.py \
     -v "$VIDEOFILE" \
     --progress \
     --ramdisk \
-    --num-cores $((SLURM_CPUS_PER_TASK - 1)) \
+    --num-cores 4 \
     --nn-backend "$DNN_BACKEND" \
     $PROCESS_ARGS
