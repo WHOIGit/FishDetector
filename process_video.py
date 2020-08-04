@@ -15,20 +15,19 @@ import os
 import shutil
 import tempfile
 
-import cv2
-import numpy
+import cv2 as cv
+import numpy as np
 import tqdm
-
-import cva
 
 
 def argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-n', '--num-cores', type=int, default=1)
     parser.add_argument('-v', '--video', required=True)
     parser.add_argument('--progress', action='store_true')
+
+    group = parser.add_argument_group('acceleration')
+    parser.add_argument('-n', '--num-cores', type=int, default=1)
     parser.add_argument('--ramdisk', action='store_true')
-    parser.add_argument('--gpu-factor', default=14.2)  # empirical
 
     group = parser.add_argument_group('output')
     group.add_argument('--save-original')
@@ -44,8 +43,12 @@ def argument_parser():
     group.add_argument('--bg-history', type=int, default=250)
     group.add_argument('--bg-var-threshold', type=float, default=16.0)
 
-    # Values here are from Fish-Abundance, in comments are OpenCV defaults
     group = parser.add_argument_group('optical flow')
+    group.add_argument('--of-equalize-luminance', action='store_true')
+    group.add_argument('--of-history', action='store_true')
+    group.add_argument('--of-use-angle', action='store_true')
+
+    # Values here are from Fish-Abundance, in comments are OpenCV defaults
     group.add_argument('--of-pyr-scale', type=float, default=0.95)  # 0.5
     group.add_argument('--of-levels', type=int, default=10)  # 3
     group.add_argument('--of-winsize', type=int, default=15)  # 7
@@ -62,29 +65,23 @@ def argument_parser():
     return parser
 
 
-def num_gpus(args):
-    return len(os.environ.get('GPU_DEVICE_ORDINAL', '').split(','))
+def num_gpus():
+    ordinals = os.environ.get('GPU_DEVICE_ORDINAL', '').split(',')
+    return len([o for o in ordinals if o != ''])
 
 
-def assign_gpu(worker_num, args):
-    if args.nn_backend == 'CUDA':
-        if worker_num < num_gpus(args):
-            cv2.cuda.setDevice(worker_num)
-            return worker_num
-    return None
+def assign_gpu(n):
+    assert n < num_gpus()
+    cv.cuda.setDevice(n)
 
 
-def load_network(worker_num, is_gpu, args):
+def load_network(worker_num, args):
     if not (args.nn_weights and args.nn_config):
         return None, None
 
-    net = cv2.dnn.readNet(args.nn_weights, args.nn_config, 'darknet')
-    if is_gpu:
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-    else:
-        net.setPreferableBackend(cv2.dnn.DNN_BACKEND_DEFAULT)
-        net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+    net = cv.dnn.readNet(args.nn_weights, args.nn_config, 'darknet')
+    net.setPreferableBackend(cv.dnn.DNN_BACKEND_CUDA)
+    net.setPreferableTarget(cv.dnn.DNN_TARGET_CUDA)
 
     # Determine the input image size the network expects
     config = configparser.ConfigParser(strict=False)
@@ -105,7 +102,7 @@ def main(args):
         args.save_original,
         args.save_preprocessed,
     ]
-    assert any(outopts)
+    #assert any(outopts)
     assert all(os.path.isdir(x) for x in outopts if x is not None)
 
     # Make a copy of the video in RAM for efficiency
@@ -116,14 +113,12 @@ def main(args):
         args.video = copypath
 
     # Determine the number of frames in the video
-    video = cv2.VideoCapture(args.video)
-    nframes = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    video = cv.VideoCapture(args.video)
+    nframes = int(video.get(cv.CAP_PROP_FRAME_COUNT))
     del video
 
     # Break the frames into work units, scaled by compute power
     power = [1] * args.num_cores
-    for i in range(min(num_gpus(args), args.num_cores)):
-        power[i] = args.gpu_factor
     
     # Total number of frames to process, including duplicates for priming the
     # foreground extraction model.
@@ -161,33 +156,34 @@ def dispatch_worker(args, nwu):
 
 
 def worker_main(args, n, workunit):
-    # Get the OpenCV accelerator if available
-    ctx = cva.get_accelerator(n)
-    ctx.push_stream()  # reuse across all frames
+    # Assign a GPU to us
+    assign_gpu(n)
 
     # Load the neural network
-    net, nn_size = load_network(n, ctx.is_gpu, args)
+    net, nn_size = load_network(n, args)
 
     # Open the video file
-    video = cv2.VideoCapture(args.video)
+    video = cv.VideoCapture(args.video)
     
-    # Figure out how to measure time
-    assert int(video.get(cv2.CAP_PROP_POS_FRAMES)) == 0
-    video.set(cv2.CAP_PROP_POS_FRAMES, 1)
-    assert int(video.get(cv2.CAP_PROP_POS_FRAMES)) == 1
-
-    if int(video.get(cv2.CAP_PROP_POS_MSEC)) == 0:
-        framerate = video.get(cv2.CAP_PROP_FPS)
-        get_timestamp = lambda nf: int(1000 * (nf / framerate))
-    else:
-        get_timestamp = lambda _: int(video.get(cv2.CAP_PROP_POS_MSEC))
+    # For historical reasons, frames are referenced according to their timestamp
+    # according to the following function. Unfortunately, due to a bug, the
+    # timestamp is off by one frame, and the first two frames have the timestamp
+    # 0.0.
+    #
+    # The frame number should be queried *before* the frame itself is captured.
+    #
+    # This was tested and matches the number given by CAP_PROP_POS_MSEC. OpenCV
+    # uses a frames per second (e.g., 15.0) rather than the microseconds per
+    # frame (e.g., 66666) that is actually encoded in the file.
+    framerate = video.get(cv.CAP_PROP_FPS)
+    get_timestamp = lambda fn: int(1e3 * max(0, fn - 1) / framerate)
 
     # Seek to the first frame we care about
-    video.set(cv2.CAP_PROP_POS_FRAMES, workunit[0])
-    assert int(video.get(cv2.CAP_PROP_POS_FRAMES)) == workunit[0]
+    video.set(cv.CAP_PROP_POS_FRAMES, workunit[0])
+    assert int(video.get(cv.CAP_PROP_POS_FRAMES)) == workunit[0]
 
     # Create the optical flow calculator
-    flowengine = ctx.FarnebackOpticalFlow.create(
+    flowengine = cv.cuda_FarnebackOpticalFlow.create(
         args.of_levels,
         args.of_pyr_scale,
         False,
@@ -199,58 +195,54 @@ def worker_main(args, n, workunit):
     )
 
     # Create the background subtractor
-    bgsub = ctx.createBackgroundSubtractorMOG2(
+    bgsub = cv.cuda.createBackgroundSubtractorMOG2(
         history=args.bg_history,
         varThreshold=args.bg_var_threshold,
         detectShadows=False
     )
 
     # Create the opening filter
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
-    # FIXME: The image type we pass to the filter is 8UC3, but filter doesn't
-    # support it
-    #filter = ctx.createMorphologyFilter(cv2.MORPH_OPEN, cv2.CV_8UC4, kernel)
+    kernel = cv.getStructuringElement(cv.MORPH_RECT, (7, 7))
+    filter = cv.cuda.createMorphologyFilter(cv.MORPH_OPEN, cv.CV_8UC4, kernel)
 
     prev = None
 
     iterator = range(workunit[0], workunit[2])
     if args.progress:
-        iterator = tqdm.tqdm(iterator, position=n,
-                             desc=f'{"G" if ctx.is_gpu else "C"}{n:02}')
+        iterator = tqdm.tqdm(iterator, position=n, desc=f'G{n:02}')
+
+    # If --of-history is passed, we will use the flow from the previous frame
+    # to inform the flow in this frame.
+    last_flow = None
+
+    stream = cv.cuda_Stream()
 
     for nf in iterator:
-        # Determine the timestamp *before* we read the frame
-        timestamp = get_timestamp(nf)
-
-        # Read the frame itself
+        # Read the next frame
         success, frame = video.read()
         assert success
 
-        # Compute the output filename
-        name_prefix, _ = os.path.splitext(os.path.basename(args.video))
-        out = '%s_%i' % (name_prefix, timestamp)
-
         # Upload the frame to the device
         frame_local = frame[:]
-        frame = ctx.upload(frame)
+        frame = cv.cuda_GpuMat(frame.shape[0], frame.shape[1], cv.CV_8UC3)
+        frame.upload(frame_local, stream=stream)
 
         # Resize the frame if necessary
         if args.resize:
-            frame = ctx.resize(frame, tuple(args.resize))
+            frame = cv.cuda.resize(frame, tuple(args.resize), stream=stream)
 
 
         # -- Raw image --------------------------------------------------------
 
         # Convert the frame to grayscale and store it in the red channel
-        gray = ctx.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv.cuda.cvtColor(frame, cv.COLOR_BGR2GRAY, stream=stream)
         red_channel = gray
 
 
         # -- Foreground extraction --------------------------------------------
 
         # Apply background subtraction to determine the mask
-        #mask = bgsub.apply(frame, None, -1, None)
-        mask = gray
+        mask = bgsub.apply(frame, -1, stream=stream)
 
         # Store the result in the green channel
         green_channel = mask
@@ -258,19 +250,24 @@ def worker_main(args, n, workunit):
 
         # -- Optical flow -----------------------------------------------------
 
-        # Equalize the luminance histogram of the image before converting to
-        # grayscale.
-        y, u, v = ctx.split(ctx.cvtColor(frame, cv2.COLOR_BGR2YUV))
-        y = ctx.equalizeHist(y)
+        # Equalize the luminance histogram of the image
+        if args.of_equalize_luminance:
+            y, u, v = cv.cuda.split(cv.cuda.cvtColor(frame, cv.COLOR_BGR2YUV, stream=stream), stream=stream)
+            y = cv.cuda.equalizeHist(y, stream=stream)
 
-        eqframe = ctx.merge((y, u, v))
-        eqframe = ctx.cvtColor(eqframe, cv2.COLOR_YUV2RGB)  # no direct 2GRAY
-        eqframe = ctx.cvtColor(eqframe, cv2.COLOR_RGB2GRAY)
+            eqframe = cv.cuda_GpuMat(y.size(), cv.CV_8UC3)
+            cv.cuda.merge((y, u, v), eqframe, stream=stream)
+            eqframe = cv.cuda.cvtColor(eqframe, cv.COLOR_YUV2RGB,
+                                       stream=stream)  # no direct YUV2GRAY
+            eqframe = cv.cuda.cvtColor(eqframe, cv.COLOR_RGB2GRAY,
+                                       stream=stream)
+        else:
+            eqframe = gray
 
         # Exit early if we are just seeding the background subtraction history
         # and not actually processing this frame.
         if nf < workunit[1]:
-            continue
+             continue
 
         # We can only compute optical flow if there is a previous frame
         preveqframe, prev = prev, eqframe
@@ -278,51 +275,62 @@ def worker_main(args, n, workunit):
             continue
 
         # Compute optical flow between current frame and previous
-        flow = flowengine.calc(preveqframe, eqframe, None)
+        flow = flowengine.calc(preveqframe, eqframe, last_flow, stream=stream)
+        if args.of_history:
+            last_flow = flow
 
         # Visualize the flow in color
-        x, y = ctx.split(flow)
-        mag, ang = ctx.cartToPolar(x, y)
+        x, y = cv.cuda.split(flow, stream=stream)
+        mag, ang = cv.cuda.cartToPolar(x, y, stream=stream)
 
-        # hsv = numpy.zeros((frame.shape[0], frame.shape[1], 3), numpy.uint8)
-        # hsv[...,0] = 255 * ang / (2*numpy.pi)  # hue
-        # hsv[...,1] = 255  # saturation
-        # hsv[...,2] = ctx.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)  # value
+        c = cv.cuda_GpuMat(frame.size(), cv.CV_32FC1, 255 / (2*np.pi))
+        hue = cv.cuda.multiply(c, ang, stream=stream)
+        sat = cv.cuda_GpuMat(frame.size(), cv.CV_32FC1, 255)
+        val = cv.cuda.normalize(mag, 0, 255, cv.NORM_MINMAX, -1, stream=stream)
 
-        hsv = ctx.merge((mag, mag, mag))
+        hsv = cv.cuda_GpuMat(frame.size(), cv.CV_32FC3)
+        cv.cuda.merge((hue, sat, val), hsv, stream=stream)
 
-        # Convert to BGR
-        bgr = ctx.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        # Convert to BGRA
+        bgr = cv.cuda.cvtColor(hsv, cv.COLOR_HSV2BGR, stream=stream)
+        bgra = cv.cuda.cvtColor(bgr, cv.COLOR_BGR2BGRA, stream=stream)
 
         # Apply an opening operator
-        #bgr = filter.apply(bgr)
+        x = cv.cuda_GpuMat(frame.size(), cv.CV_8UC4)
+        bgra.convertTo(cv.CV_8UC4, x)
+        bgra = filter.apply(x)
 
         # Store the result in the blue channel
-        bgrgray = ctx.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
-        blue_channel = red_channel #bgrgray
+        bgrgray = cv.cuda.cvtColor(bgra, cv.COLOR_BGRA2GRAY, stream=stream)
+        blue_channel = bgrgray
 
         # ---------------------------------------------------------------------
 
         # Combine the channels
-        combined = ctx.merge((
+        combined = cv.cuda_GpuMat(blue_channel.size(), cv.CV_8UC3)
+        cv.cuda.merge((
             blue_channel,
             green_channel,
             red_channel,
-        ))
+        ), combined, stream=stream)
 
         # Download the combined image from the device
-        combined = ctx.download(combined)
-        ctx.await_stream()
+        output = combined.download(stream=stream)
 
-        # Output the combined image
+        # Wait for completion of the stream, after which point the finished
+        # image should be in the `output` array.
+        stream.waitForCompletion()
+
+        # Compute the output filename
+        name_prefix, _ = os.path.splitext(os.path.basename(args.video))
+        out = '%s_%i' % (name_prefix, get_timestamp(nf))
+
+        if args.save_original:
+            path = os.path.join(args.save_original, out + '_original.jpg')
+            cv.imwrite(path, input)
         if args.save_preprocessed:
             path = os.path.join(args.save_preprocessed, out + '.jpg')
-            cv2.imwrite(path, combined)
-        if args.save_original:
-            ctx.await_stream()
-            path = os.path.join(args.save_original, out + '_original.jpg')
-            cv2.imwrite(path, frame_local)
-
+            cv.imwrite(path, output)
 
         # -- Neural network ---------------------------------------------------
 
@@ -330,8 +338,8 @@ def worker_main(args, n, workunit):
             continue
 
         # Create the blob to feed to the network
-        blob = cv2.dnn.blobFromImage(
-            numpy.float32(combined),
+        blob = cv.dnn.blobFromImage(
+            np.float32(output),
             1/255.0, nn_size, [0, 0, 0], True, crop=False
         )
 
@@ -348,14 +356,14 @@ def worker_main(args, n, workunit):
             for detection in nnout:
                 # Determine the classification with the highest confidence
                 scores = detection[5:]
-                classId = numpy.argmax(scores)
+                classId = np.argmax(scores)
                 confidence = scores[classId].item()
                 if confidence < args.nn_threshold:
                     continue
                 confidences.append(confidence)
 
                 # Convert the bounding box to absolute coordinates
-                height, width, _ = combined.shape
+                height, width, _ = output.shape
                 center_x = int(detection[0] * width)
                 center_y = int(detection[1] * height)
                 boxwidth = int(detection[2] * width)
@@ -366,7 +374,7 @@ def worker_main(args, n, workunit):
 
         # Apply non-maximum suppression to eliminate overlapping boxes
         indices = \
-            cv2.dnn.NMSBoxes(boxes, confidences, args.nn_threshold, args.nn_nms)
+            cv.dnn.NMSBoxes(boxes, confidences, args.nn_threshold, args.nn_nms)
         indices = indices[:,0] if len(indices) else []
 
         boxes = [ boxes[i] for i in indices ]
@@ -406,7 +414,7 @@ def worker_main(args, n, workunit):
                 right, bot = box[0] + box[2], box[1] + box[3]
 
                 # Draw bounding box
-                cv2.rectangle(
+                cv.rectangle(
                     labeled,
                     (left, top),
                     (right, bot),
@@ -416,23 +424,23 @@ def worker_main(args, n, workunit):
                 # Draw label background
                 label = '%.2f' % conf
                 labelsz, baseline = \
-                    cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                    cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                 top = max(top, labelsz[1])
-                cv2.rectangle(
+                cv.rectangle(
                     labeled,
                     (left, top - labelsz[1]),
                     (left + labelsz[0], top + baseline),
                     (255, 255, 255),
-                    cv2.FILLED
+                    cv.FILLED
                 )
 
                 # Draw label
-                cv2.putText(labeled, label, (left, top),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
+                cv.putText(labeled, label, (left, top),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0))
 
             # Write out file
             path = os.path.join(args.save_detection_image, out + '_labeled.jpg')
-            cv2.imwrite(path, labeled)
+            cv.imwrite(path, labeled)
 
 
 if __name__ == '__main__':
