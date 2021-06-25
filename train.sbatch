@@ -40,12 +40,13 @@ for LIST in data/{test,train}.txt; do
     sed -e 's,^,data/,g' "$LIST" > "$(basename "$LIST")"
 done
 
-python "$BASEDIR"/configtool.py \
+python3 "$BASEDIR"/configtool.py \
     --classes "$CLASSES" \
     --batch 64 \
     --subdivisions 32 \
     --no-color-adjustments \
     --size 416 960 \
+    --min-batches 6000 \
     "$BASEDIR"/darknet/cfg/yolov4-custom.cfg \
     > yolo-obj.cfg
 

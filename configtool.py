@@ -12,6 +12,7 @@ parser.add_argument('--classes', type=int)
 parser.add_argument('--no-color-adjustments', action='store_true')
 parser.add_argument('--size', nargs=2, type=int)
 parser.add_argument('--subdivisions', type=int)
+parser.add_argument('--min-batches', type=int, default=6000)
 parser.add_argument('baseconfig')
 args = parser.parse_args()
 
@@ -49,14 +50,14 @@ if args.batch is not None:
 
 if args.classes is not None:
     net.attributes['max_batches'] = max_batches = \
-        max(6000, args.classes * 2000)
+        max(args.min_batches, args.classes * 2000)
     net.attributes['steps'] = \
         f'{int(0.8*max_batches)},{int(0.9*max_batches)}'
-    
+
     for section in getsections('yolo'):
         section.attributes['classes'] = args.classes
         config[section.index-1].attributes['filters'] = (args.classes + 5) * 3
-    
+
     for section in getsections('gaussian_yolo'):
         section.attributes['classes'] = args.classes
         config[section.index-1].attributes['filters'] = (args.classes + 9) * 3
