@@ -24,6 +24,7 @@ def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument('-v', '--video', required=True)
     parser.add_argument('--progress', action='store_true')
+    parser.add_argument('--frame-list', action='append')
 
     group = parser.add_argument_group('acceleration')
     parser.add_argument('-n', '--num-cores', type=int, default=1)
@@ -105,6 +106,21 @@ def main(args):
     #assert any(outopts)
     assert all(os.path.isdir(x) for x in outopts if x is not None)
 
+    # If frame lists are provided, create a map from filename_framenumber to
+    # the directory to save the output file to.
+    if args.frame_list is not None:
+        frame_list = {}
+        for listfile in args.frame_list:
+            with open(listfile) as f:
+                for line in f:
+                    line = line.rstrip()
+                    base, _ = os.path.splitext(os.path.basename(line))
+                    if 'negatives/' in line:
+                        frame_list[base] = 'negatives/'
+                    else:
+                        frame_list[base] = './'
+        args.frame_list = frame_list
+
     # Make a copy of the video in RAM for efficiency
     if args.ramdisk:
         tempdir = tempfile.TemporaryDirectory(dir='/dev/shm')
@@ -166,9 +182,7 @@ def worker_main(args, n, workunit):
     video = cv.VideoCapture(args.video)
     
     # For historical reasons, frames are referenced according to their timestamp
-    # according to the following function. Unfortunately, due to a bug, the
-    # timestamp is off by one frame, and the first two frames have the timestamp
-    # 0.0.
+    # according to the following function.
     #
     # The frame number should be queried *before* the frame itself is captured.
     #
@@ -176,7 +190,7 @@ def worker_main(args, n, workunit):
     # uses a frames per second (e.g., 15.0) rather than the microseconds per
     # frame (e.g., 66666) that is actually encoded in the file.
     framerate = video.get(cv.CAP_PROP_FPS)
-    get_timestamp = lambda fn: int(1e3 * max(0, fn - 1) / framerate)
+    get_timestamp = lambda fn: int(1e3 * fn / framerate)
 
     # Seek to the first frame we care about
     video.set(cv.CAP_PROP_POS_FRAMES, workunit[0])
@@ -215,6 +229,9 @@ def worker_main(args, n, workunit):
     # to inform the flow in this frame.
     last_flow = None
 
+    # Compute the prefix of the video name, for building frame filenames later
+    name_prefix, _ = os.path.splitext(os.path.basename(args.video))
+
     stream = cv.cuda_Stream()
 
     for nf in iterator:
@@ -231,12 +248,16 @@ def worker_main(args, n, workunit):
         if args.resize:
             frame = cv.cuda.resize(frame, tuple(args.resize), stream=stream)
 
+        # Compute the output filename
+        out = '%s_%i' % (name_prefix, get_timestamp(nf))
 
-        # -- Raw image --------------------------------------------------------
+        # Determine whether we will want to save this image
+        save_this = args.frame_list is None or out in args.frame_list
 
-        # Convert the frame to grayscale and store it in the red channel
-        gray = cv.cuda.cvtColor(frame, cv.COLOR_BGR2GRAY, stream=stream)
-        red_channel = gray
+        # Modify the out path to use whatever directory prefix we are sorting
+        # into.
+        if args.frame_list is not None:
+            out = os.path.join(args.frame_list.get(out, './'), out)
 
 
         # -- Foreground extraction --------------------------------------------
@@ -246,6 +267,19 @@ def worker_main(args, n, workunit):
 
         # Store the result in the green channel
         green_channel = mask
+
+
+        # First exit early spot: If this purely for prepping the background
+        # subtractor, we don't need anything further.
+        if nf < workunit[1] - 1:
+            continue
+
+
+        # -- Raw image --------------------------------------------------------
+
+        # Convert the frame to grayscale and store it in the red channel
+        gray = cv.cuda.cvtColor(frame, cv.COLOR_BGR2GRAY, stream=stream)
+        red_channel = gray
 
 
         # -- Optical flow -----------------------------------------------------
@@ -264,15 +298,20 @@ def worker_main(args, n, workunit):
         else:
             eqframe = gray
 
-        # Exit early if we are just seeding the background subtraction history
-        # and not actually processing this frame.
-        if nf < workunit[1]:
-             continue
-
         # We can only compute optical flow if there is a previous frame
         preveqframe, prev = prev, eqframe
         if preveqframe is None:
             continue
+
+
+        # Second early exit spot: We populated preveqframe, we do not need to
+        # compute the optical flow for this frame.
+        if nf < workunit[1] or not save_this:
+            continue
+
+        # Note: We may not want to exit early if args.of_history is on, or we
+        # may want to clear history between non-consecutive frames.
+
 
         # Compute optical flow between current frame and previous
         flow = flowengine.calc(preveqframe, eqframe, last_flow, stream=stream)
@@ -304,6 +343,7 @@ def worker_main(args, n, workunit):
         bgrgray = cv.cuda.cvtColor(bgra, cv.COLOR_BGRA2GRAY, stream=stream)
         blue_channel = bgrgray
 
+
         # ---------------------------------------------------------------------
 
         # Combine the channels
@@ -321,16 +361,13 @@ def worker_main(args, n, workunit):
         # image should be in the `output` array.
         stream.waitForCompletion()
 
-        # Compute the output filename
-        name_prefix, _ = os.path.splitext(os.path.basename(args.video))
-        out = '%s_%i' % (name_prefix, get_timestamp(nf))
-
         if args.save_original:
             path = os.path.join(args.save_original, out + '_original.jpg')
-            cv.imwrite(path, input)
+            cv.imwrite(path, frame_local)
         if args.save_preprocessed:
             path = os.path.join(args.save_preprocessed, out + '.jpg')
             cv.imwrite(path, output)
+
 
         # -- Neural network ---------------------------------------------------
 
@@ -382,16 +419,16 @@ def worker_main(args, n, workunit):
 
         # Save detection data if desired
         if boxes and args.save_detection_data:
-            output = {
+            detout = {
                 'video': args.video,
                 'frame': {
-                    'width': combined.shape[1],
-                    'height': combined.shape[0],
+                    'width': output.shape[1],
+                    'height': output.shape[0],
                     'number': nf,
-                    'timestamp_msec': timestamp,
+                    'timestamp_msec': get_timestamp(nf),
                 }
             }
-            detections = output['detections'] = []
+            detections = detout['detections'] = []
 
             for conf, box in zip(confidences, boxes):
                 detections.append({
@@ -404,11 +441,11 @@ def worker_main(args, n, workunit):
 
             path = os.path.join(args.save_detection_data, out + '_boxes.json')
             with open(path, 'w') as f:
-                json.dump(output, f)
+                json.dump(detout, f)
 
         # Draw labels on an image if desired
         if args.save_detection_image:
-            labeled = combined.copy()
+            labeled = output.copy()
             for conf, box in zip(confidences, boxes):
                 left, top = box[0], box[1]
                 right, bot = box[0] + box[2], box[1] + box[3]
