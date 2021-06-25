@@ -6,7 +6,7 @@
 #SBATCH --mem-per-cpu=6gb
 #SBATCH --time=24:00:00
 #SBATCH --partition=gpu
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:1
 #SBATCH --output=logs/detect_%j.log
 
 # usage: sbatch detect.sbatch <video> <network_dir>
@@ -81,7 +81,7 @@ python process_video.py \
     -v "$VIDEOFILE" \
     --progress \
     --ramdisk \
-    --num-cores 4 \
+    --num-cores 1 \
     --nn-config "$OUTDIR"/network/yolo-obj.cfg \
     --nn-weights "$OUTDIR"/network/yolo-obj_"$NET".weights \
     --nn-threshold 0.5 \
