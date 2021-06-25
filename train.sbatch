@@ -14,8 +14,9 @@ echo "Job ID: $SLURM_JOB_ID, JobName: $SLURM_JOB_NAME"
 hostname; pwd; date
 trap date EXIT
 
-module load cuda10.1/{toolkit,blas,fft}
+module load cuda10.1/{blas,cudnn,fft,toolkit}
 module load gcc/6.5.0
+module load python3/3.6.5
 
 BASEDIR="$(pwd)"
 
@@ -36,9 +37,17 @@ ln -s "$DATADIR" data
 cp "$BASEDIR"/obj.names .
 CLASSES="$(wc -l ./obj.names | cut -d ' ' -f 1)"
 
-for LIST in data/{test,train}.txt; do
-    sed -e 's,^,data/,g' "$LIST" > "$(basename "$LIST")"
+# Make a copy of input lists with fixed paths
+for FILE in valid train; do
+    if [ -f data/$FILE.txt ]; then
+        sed -e 's,^,data/,g' data/$FILE.txt > $FILE.txt
+    fi
 done
+
+# Make a dummy validation file with minimal content
+if [ ! -f valid.txt ]; then
+    head train.txt > valid.txt
+fi
 
 python3 "$BASEDIR"/configtool.py \
     --classes "$CLASSES" \
@@ -54,10 +63,13 @@ python3 "$BASEDIR"/configtool.py \
 cat <<EOF > obj.data
 classes = $CLASSES
 train = train.txt
-test = test.txt
+valid = valid.txt
 names = obj.names
 backup = ./
 EOF
+
+# Turn on core dumps in case we crash
+ulimit -c unlimited
 
 echo "Starting single GPU training"
 darknet detector train \
@@ -65,4 +77,10 @@ darknet detector train \
     ./yolo-obj.cfg \
     "$BASEDIR"/pretrained/yolov4.conv.137 \
     -dont_show \
+    -map \
     -gpus 0
+
+# Convert the log to a CSV file
+gawk 'BEGIN { print "batch,avg loss" } match($0, /^ *([0-9]+):.* ([0-9.]+) avg loss/, ary) { print ary[1] "," ary[2] }' \
+    ./train.log \
+    > ./avg_loss.csv
