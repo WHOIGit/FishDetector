@@ -120,8 +120,8 @@ On WHOI's HPC, build Darknet on a GPU node:
 
 Load all necessary modules:
 
-    module load cuda10.1/{toolkit,blas,fft}
-    module load cmake/3.14.3 gcc/6.5.0 python3/3.6.5
+    module load cuda10.1/{blas,cudnn,fft,toolkit}
+    module load cmake/3.20.2 gcc/6.5.0 python3/3.6.5
 
 Create and activate the virtual environment:
 
@@ -129,13 +129,6 @@ Create and activate the virtual environment:
     . .venv/bin/activate
     pip install -r requirements.txt
     pip uninstall -y opencv-python
-
-
-### Obtaining cuDNN
-
-WHOI's HPC provides an oudated cuDNN module. A newer version can be obtained from [NVIDIA Developer][cudnn]. Obtain a recent release (tested: 7.6.5) for CUDA 10.1 and unpack it to the `cudnn/` directory (renaming it from `cuda/`).
-
-[cudnn]: https://developer.nvidia.com/cudnn
 
 
 ### Building OpenCV
@@ -179,7 +172,8 @@ Download [OpenCV][opencv-rel] to `opencv/` and [extras][opencv-contrib-rel] to `
         -DPYTHON3_EXECUTABLE="$(command -v python3)" \
         -DPYTHON3_NUMPY_INCLUDE_DIRS="$NUMPY_INCLUDE" \
         -DPYTHON3_PACKAGES_PATH="$PYTHON_PACKAGES" \
-        -DOPENCV_SKIP_PYTHON_LOADER=ON
+        -DOPENCV_SKIP_PYTHON_LOADER=ON \
+        -DWITH_TIFF=OFF
     cmake --build . -j "$(nproc)"
 
 Compiling the CUDA source files takes an unusually long time, so the build may appear to stall.
@@ -194,8 +188,8 @@ Finally, we can install the Python module to the virtual environment. Be sure to
     mkdir build_release && cd build_release
     cmake .. \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-        -DCUDNN_LIBRARY="$(pwd)/../../cudnn/lib64/libcudnn.so" \
-        -DCUDNN_INCLUDE_DIR="$(pwd)/../../cudnn/include" \
+        -DCUDNN_LIBRARY=/vortexfs1/apps/cudnn-10.1/8.0.2/lib64/libcudnn.so \
+        -DCUDNN_INCLUDE_DIR=/vortexfs1/apps/cudnn-10.1/8.0.2/include \
         -DENABLE_CUDNN_HALF=ON \
         -DOpenCV_DIR=$(cd ../../opencv/build; pwd)
     cmake --build . -j "$(nproc)"
