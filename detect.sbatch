@@ -52,12 +52,13 @@ else
     DNN_BACKEND=OpenCL
 fi
 echo "[*] Using DNN backend $DNN_BACKEND"
+NET="${3:-best}"
 
 # Get the name of the video without extension
 VIDEONAME="$(basename "$VIDEOFILE" | rev | cut -d . -f 2- | rev)"
 
 # Create a directory to store detections
-NETWORKNAME="network_$(basename "$NETDIR")"
+NETWORKNAME="network_$(basename "$NETDIR")_$NET"
 OUTDIR=detections/"$NETWORKNAME"/"$VIDEONAME"
 
 if [ -d "$OUTDIR" ]; then
@@ -82,7 +83,7 @@ python process_video.py \
     --ramdisk \
     --num-cores 4 \
     --nn-config "$OUTDIR"/network/yolo-obj.cfg \
-    --nn-weights "$OUTDIR"/network/yolo-obj_final.weights \
+    --nn-weights "$OUTDIR"/network/yolo-obj_"$NET".weights \
     --nn-threshold 0.5 \
     --nn-nms 0.4 \
     --save-detection-data "$OUTDIR" \
