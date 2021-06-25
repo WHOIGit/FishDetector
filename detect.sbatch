@@ -44,14 +44,6 @@ pip install -r requirements.txt
 # Get configuration options
 VIDEOFILE="$1"
 NETDIR="$(cd "$2"; pwd)"
-
-# Pick a backend for OpenCV DNN
-if [ "$HAS_GPU" -eq 1 ]; then
-    DNN_BACKEND=CUDA
-else
-    DNN_BACKEND=OpenCL
-fi
-echo "[*] Using DNN backend $DNN_BACKEND"
 NET="${3:-best}"
 
 # Get the name of the video without extension
@@ -64,7 +56,7 @@ OUTDIR=detections/"$NETWORKNAME"/"$VIDEONAME"
 if [ -d "$OUTDIR" ]; then
     echo "Deleting existing directory $OUTDIR"
     rm -Rf "$OUTDIR"
-    find detections/byjob -xtype l -delete
+    find detections/byjob -xtype l -delete || true
 fi
 
 mkdir -p "$OUTDIR"
