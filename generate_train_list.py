@@ -5,57 +5,46 @@ import random
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dir', required=True)
-parser.add_argument('--negatives')
+parser.add_argument('--positives', '-p', action='append')
+parser.add_argument('--negatives', '-n', action='append')
 parser.add_argument('--train-ratio', default=0.9)
-parser.add_argument('--hack', action='store_true')
 args = parser.parse_args()
 
 
-listing = [ os.path.join(args.dir, f) for f in os.listdir(args.dir) ]
-files = [ f for f in listing \
-        if f.endswith('.jpg') and not f.endswith('_original.jpg') and
-           f.replace('.jpg', '.txt') in listing ]
+# Find positive examples
+poslisting = []
+for dir in args.positives:
+    poslisting.extend(os.path.join(dir, f) for f in os.listdir(dir))
+positives = [ f for f in poslisting
+              if f.endswith('.jpg') and not f.endswith('_original.jpg') and
+                  f.replace('.jpg', '.txt') in poslisting ]
 
 
-# This is a hack to deal with the fact that we haven't vetted all labels yet
-def hack_filter(f):
-    prefix, _ = os.path.splitext(os.path.basename(f))
-    basefile, _, frameno = prefix.partition('_')
-    frameno = int(frameno)
-
-    if basefile == '20170821170158310' and frameno > 6589666:
-        return False
-    return True
+# Find negative examples
+neglisting = []
+for dir in args.negatives:
+    neglisting.extend(os.path.join(dir, f) for f in os.listdir(dir))
+negatives = [ f for f in neglisting
+              if f.endswith('.jpg') and not f.endswith('_original.jpg') ]
 
 
-if args.hack:
-    files = list(filter(hack_filter, files))
+# Pick a random set of true negatives to add to the positives list. Choose the
+# same number so that our set is not biased towards true positives.
+files = list(positives)
+files.extend(random.sample(negatives, len(positives)))
+
+# Create empty bounding box files for the negatives
+for f in negatives:
+    if f in files and not f.replace('.jpg', '.txt') in neglisting:
+        open(f.replace('.jpg', '.txt'), 'w').close()
 
 
-# Add a random set of true negatives
-if args.negatives:
-    negatives = [ os.path.join(args.negatives, f)
-                  for f in os.listdir(args.negatives)
-                  if f.endswith('.jpg') and not f.endswith('_original.jpg') ]
-    if args.hack:
-        negatives = list(filter(hack_filter, negatives))
-
-    # Pick a random set of true negatives to add to the files list
-    negatives = random.sample(negatives, len(files))
-    files.extend(negatives)
-
-    # Create empty bounding box files
-    for f in negatives:
-        if not f.replace('.jpg', '.txt') in listing:
-            open(f.replace('.jpg', '.txt'), 'w').close()
-
-
+# Shuffle the set of training files
 random.shuffle(files)
 ntrain = int(args.train_ratio * len(files))
 
 with open('train.txt', 'w') as o:
     o.writelines(f + '\n' for f in files[:ntrain])
 
-with open('test.txt', 'w') as o:
+with open('valid.txt', 'w') as o:
     o.writelines(f + '\n' for f in files[ntrain:])
